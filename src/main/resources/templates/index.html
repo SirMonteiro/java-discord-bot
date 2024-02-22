@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>SirMonteiro discord file uploader</title>
+</head>
+<body>
+<h1>SirMonteiro discord file uploader</h1>
+<form method="POST" action="/" enctype="multipart/form-data">
+    <label for="channelID">Insert channel ID to send the file: </label>
+    <input type="text" name="channelID" id="channelID">
+    <input type="file" name="file" />
+    <input type="submit" value="Submit" />
+</form>
+</body>
+</html>
