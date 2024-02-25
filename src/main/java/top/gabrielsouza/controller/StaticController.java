@@ -1,10 +1,13 @@
 package top.gabrielsouza.controller;
 
 import jakarta.servlet.http.HttpServletResponse;
+import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.utils.FileUpload;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,6 +16,10 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import top.gabrielsouza.botMain;
+import top.gabrielsouza.model.FileModel;
+import top.gabrielsouza.model.GuildModel;
+import top.gabrielsouza.repository.FileRepository;
+import top.gabrielsouza.repository.GuildRepository;
 import top.gabrielsouza.utils.fileSplitter;
 
 
@@ -27,6 +34,11 @@ import static org.springframework.util.StreamUtils.BUFFER_SIZE;
 
 @Controller
 public class StaticController {
+
+    @Autowired
+    private GuildRepository guildRepository;
+    @Autowired
+    private FileRepository fileRepository;
     @GetMapping("/")
     public String index() {
         return "index";
@@ -37,8 +49,35 @@ public class StaticController {
         return "success";
     }
 
+    @GetMapping("/create/{guildId}")
+    public String create(@PathVariable String guildId) {
+        Guild guild = botMain.getJDA().getGuildById(guildId);
+        if (guild == null) return "index";
+        GuildModel guildModel = new GuildModel();
+        guildModel.setId(guildId);
+        guildModel.setGuildName(guild.getName());
+        guildRepository.save(guildModel);
+        return "success";
+    }
+
+    @GetMapping("/files/{channelId}")
+    public String files(@PathVariable String channelId, Model model) {
+        List<String> filenames = new ArrayList<>();
+        List<FileModel> filemodel = fileRepository.findAllByChannelId(channelId);
+        for (int i = 0; i < filemodel.size(); i++) {
+            filenames.add(filemodel.get(i).getFilename());
+        }
+        model.addAttribute("files", filenames);
+        return "files";
+    }
+
+    @GetMapping("/video/{channelId}/{filename}")
+    public String video(@PathVariable String channelId, @PathVariable String filename, Model model) {
+        return "video";
+    }
+
     @PostMapping("/")
-    public String fileUpload(@RequestParam("file")MultipartFile file, RedirectAttributes redirectAttributes, @RequestParam("channelID")String channelID) {
+    public String fileUpload(@RequestParam("file")MultipartFile file, RedirectAttributes redirectAttributes, @RequestParam("channelId")String channelId) {
 
         String UPLOADED_FOLDER = "C://Users//gabriel//IdeaProjects//discordBot//src//main//resources//test//";
 
@@ -65,13 +104,27 @@ public class StaticController {
             try {
                 for (int i = 0; i < chunks.size(); i++) {
                     FileUpload upload = FileUpload.fromData(chunks.get(i), i + file.getOriginalFilename());
-                    botMain.getJDA().getTextChannelById(channelID).sendFiles(upload).queue((message -> {
-                        long messageID = message.getIdLong();
-//                        botMain.getJDA().getTextChannelById(channelID).sendMessage(Long.toString(messageID)).queue();
+                    botMain.getJDA().getTextChannelById(channelId).sendFiles(upload).queue((message -> {
+                        FileModel filemodel = fileRepository.findByChannelIdAndFilename(channelId, file.getOriginalFilename());
+                        String messageId = message.getId();
+                        if (filemodel != null) {
+                            filemodel.addToMessageIds(messageId);
+                            fileRepository.save(filemodel);
+                        } else {
+                            filemodel = new FileModel();
+                            List<String> messagesIds = new ArrayList<>();
+                            filemodel.setChannelId(channelId);
+                            filemodel.setGuildId(botMain.getJDA().getTextChannelById(channelId).getGuild().getId());
+                            filemodel.setFilename(file.getOriginalFilename());
+                            messagesIds.add(messageId);
+                            filemodel.setMessageIds(messagesIds);
+                            fileRepository.save(filemodel);
+                        }
+//                        botMain.getJDA().getTextChannelById(channelId).sendMessage(Long.toString(messageID)).queue();
                     }));
 
                 }
-//                botMain.getJDA().getTextChannelById(channelID).sendMessage("sending file...").addFiles(upload).queue();
+//                botMain.getJDA().getTextChannelById(channelId).sendMessage("sending file...").addFiles(upload).queue();
             } catch (NullPointerException e) {
                 e.printStackTrace();
             }
@@ -88,26 +141,16 @@ public class StaticController {
 
     // https://stackoverflow.com/a/60822304
     @GetMapping("/get/{channelId}/{originalFilename}")
-    public StreamingResponseBody downloadFile(HttpServletResponse response, @PathVariable Long channelId, @PathVariable String originalFilename) throws ExecutionException, InterruptedException {
+    public StreamingResponseBody downloadFile(HttpServletResponse response, @PathVariable String channelId, @PathVariable String originalFilename) throws ExecutionException, InterruptedException {
+        List<String> messageIds = new ArrayList<>();
+        FileModel filemodel = fileRepository.findByChannelIdAndFilename(channelId, originalFilename);
+        messageIds = filemodel.getMessageIds();
 
-        System.out.println(originalFilename);
-
-        List<Message> history = botMain.getJDA().getTextChannelById(channelId).getHistoryFromBeginning(100).complete().getRetrievedHistory();
-        List<Long> messageIds = new ArrayList<>();
-        for (int i = 0; i < history.size(); i++) {
-            List<Message.Attachment> attachments = history.get(i).getAttachments();
-            if (attachments.isEmpty()) continue;
-            String fileName = attachments.get(0).getFileName();
-            System.out.println(fileName);
-            if (!fileName.contains(originalFilename)) continue;
-            System.out.println("achou!");
-            messageIds.add(history.get(i).getIdLong());
-        }
 
         List<InputStream> stream = new ArrayList<>();
         String contentType = "";
         for (int i = 0; i < messageIds.size(); i++) {
-            Long messageId = messageIds.get(i);
+            String messageId = messageIds.get(i);
             CompletableFuture<Message> futureMessage = new CompletableFuture<>();
             botMain.getJDA().getTextChannelById(channelId).retrieveMessageById(messageId).queue(futureMessage::complete);
             Message.Attachment fileAttachment = futureMessage.get().getAttachments().get(0);
@@ -115,17 +158,6 @@ public class StaticController {
             InputStream chunk = fileAttachment.getProxy().download().get();
             stream.add(chunk);
         }
-//        InputStream result =
-//        List<InputStream> file = stream;
-
-
-
-//        CompletableFuture<Message> futureMessage = new CompletableFuture<>();
-//        botMain.getJDA().getTextChannelById(channelId).retrieveMessageById(messageId).queue(futureMessage::complete);
-//        Message.Attachment fileAttachment = futureMessage.get().getAttachments().get(0);
-//        InputStream file = fileAttachment.getProxy().download().get();
-//        String filename = fileAttachment.getFileName();
-//        String contentType = fileAttachment.getContentType();
 
         response.setContentType(contentType);
         response.setHeader(
@@ -134,7 +166,7 @@ public class StaticController {
         return outputStream -> {
             int bytesRead;
             byte[] buffer = new byte[BUFFER_SIZE];
-            for (int i = stream.size() - 1; i >= 0 ; i--) {
+            for (int i = 0; i < stream.size(); i++) {
                 InputStream file = stream.get(i);
                 while ((bytesRead = file.read(buffer)) != -1) {
                     outputStream.write(buffer, 0, bytesRead);
@@ -143,29 +175,4 @@ public class StaticController {
 
         };
     }
-
-//    // https://stackoverflow.com/a/60822304
-//    @GetMapping("/get/{channelId}/{messageId}")
-//    public StreamingResponseBody downloadFile(HttpServletResponse response, @PathVariable Long channelId, @PathVariable Long messageId) throws ExecutionException, InterruptedException {
-//
-//        CompletableFuture<Message> futureMessage = new CompletableFuture<>();
-//        botMain.getJDA().getTextChannelById(channelId).retrieveMessageById(messageId).queue(futureMessage::complete);
-//        Message.Attachment fileAttachment = futureMessage.get().getAttachments().get(0);
-//        InputStream file = fileAttachment.getProxy().download().get();
-//        String filename = fileAttachment.getFileName();
-//        String contentType = fileAttachment.getContentType();
-//
-//        response.setContentType(contentType);
-//        response.setHeader(
-//                HttpHeaders.CONTENT_DISPOSITION, "attachment;filename=\"" + filename + "\"");
-//
-//        return outputStream -> {
-//            int bytesRead;
-//            byte[] buffer = new byte[BUFFER_SIZE];
-//            while ((bytesRead = file.read(buffer)) != -1) {
-//                outputStream.write(buffer, 0, bytesRead);
-//            }
-//        };
-//    }
-
 }

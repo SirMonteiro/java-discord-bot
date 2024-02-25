@@ -17,8 +17,10 @@ dependencies {
 
     implementation("net.dv8tion:JDA:5.0.0-beta.20")
     implementation 'io.github.cdimascio:dotenv-java:3.0.0'
+    implementation "me.paulschwarz:spring-dotenv:4.0.0"
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+    implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
 }
 
 test {

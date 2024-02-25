@@ -53,7 +53,7 @@ public class botMain {
         try {
             JDABuilder builder = initBot(config.get("TOKEN"));
         } catch (LoginException|InterruptedException e) {
-            System.out.println(e.getMessage());
+            System.out.println("Error: " + e.getMessage());
             System.exit(1);
         }
 
